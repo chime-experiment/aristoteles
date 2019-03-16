@@ -120,9 +120,9 @@ for i in range(data.shape[0]):
 
 # Get the git tag and for writing to header.
 if not arg.git_tag:
-  fp = open("/etc/CHIME/version", "r")
+  fp = open("/etc/chime/version", "r")
   if not fp:
-    print "Could not find git tag in \"/etc/CHIME/version\"."
+    print "Could not find git tag in \"/etc/chime/version\"."
     exit()
   arg.git_tag = fp.read().replace("\n", "")
 

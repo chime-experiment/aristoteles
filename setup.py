@@ -27,7 +27,14 @@ setup(
     version=_get_version(),
     packages=find_packages(),
     zip_safe=False,
-    install_requires=["arrow", "click", "configobj", "h5py >= 2.10.0", "numpy >= 1.16", "future"],
+    install_requires=[
+        "arrow",
+        "click",
+        "configobj",
+        "h5py >= 2.10.0",
+        "numpy >= 1.16",
+        "future",
+    ],
     author="The CHIME Collaboration",
     entry_points="""
         [console_scripts]

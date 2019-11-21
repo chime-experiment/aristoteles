@@ -13,7 +13,7 @@ import configobj
 import numpy as np
 from aristoteles import __version__ as aristoteles_version
 
-archive_version = "2.3.0"
+archive_version = "2.4.0"
 
 dataset = {
     "barometer": {"type": "pressure"},
@@ -103,7 +103,9 @@ def entry():
         const=_DAY_LIMIT,
         default=None,
         help="reset the state to the supplied UTC day, if given, or else to the "
-        "earliest date in the database and exit without processing data",
+        "earliest date in the database and exit without processing data.  If a "
+        "valid state already exists, this will (successfully) do nothing unless "
+        "--force is also specified.",
     )
     parser.add_argument(
         "--stop",
@@ -140,9 +142,12 @@ def entry():
 
     # Force-rewrite the state, if asked to
     if arg.reset_state is not None:
-        if arg.reset_state < start_day:
-            arg.reset_state = start_day
-        write_state(conf, arg.reset_state)
+        if arg.force or read_state(conf) is None:
+            if arg.reset_state < start_day:
+                arg.reset_state = start_day
+            write_state(conf, arg.reset_state)
+        else:
+            print("State present.  Use --force to overwrite.")
         exit(0)
 
     # Load the state
@@ -157,7 +162,8 @@ def entry():
     else:
         yesterday = arrow.utcnow().floor("day").shift(days=-1)
 
-    print("yesterday = ", yesterday)
+    if arg.verbose:
+        print("yesterday = ", yesterday)
 
     # Nothing to do
     if yesterday == first_day:
@@ -249,7 +255,9 @@ def entry():
 
         # Create the HDF5 file and add global attributes.
         hf = h5py.File(filepath, "w")
-        hf.attrs.create("git_version_tag", "aristoteles-v{0}".format(aristoteles_version))
+        hf.attrs.create(
+            "git_version_tag", "aristoteles-v{0}".format(aristoteles_version)
+        )
         hf.attrs.create("system_user", os.environ["USER"])
         hf.attrs.create("collection_server", socket.gethostname())
         hf.attrs.create("instrument_name", conf["instrument"])

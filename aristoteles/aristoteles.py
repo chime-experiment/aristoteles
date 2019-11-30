@@ -13,7 +13,8 @@ import configobj
 import numpy as np
 from aristoteles import __version__ as aristoteles_version
 
-archive_version = "2.4.0"
+# See https://bao.chimenet.ca/doc/documents/5, Table 3
+archive_version = "4.0.0"
 
 dataset = {
     "barometer": {"type": "pressure"},
@@ -125,26 +126,58 @@ def entry():
         print("FATAL: error reading config file: " + repr(e.args), file=sys.stderr)
         exit(1)
 
-    for key in ("db_path", "state_path", "instrument"):
+    for key in ( "state_path", "instrument"):
         if key not in conf:
-            raise KeyError("Missing configuration key: " + key)
+            print("FATAL: Missing configuration key: " + key, file=sys.stderr)
+            exit(1)
 
-    # Open the database and find the earliest record
-    db = sqlite3.connect(conf["db_path"])
-    cur = db.cursor()
+    # Each weather station has its own section in the config object
+    stations = conf.sections
+    if len(stations) < 1:
+        print("FATAL: No weather stations defined.")
+        exit(1)
 
-    if arg.verbose:
-        print("Reading weather data from {0}".format(conf["db_path"]))
+    # For each station, connect to the DB and get the start date
+    db = dict()
+    cur = dict()
+    start_day = dict()
+    for station in stations:
+        # Open the database and find the earliest record
+        if "db_path" not in conf[station]:
+            print("FATAL: Missing configuration key: " + key + " for station " + station, file=sys.stderr)
+            exit(1)
 
-    # Get the start date
-    cur.execute("SELECT dateTime FROM archive ORDER BY dateTime LIMIT 1;")
-    start_day = arrow.get(cur.fetchone()[0]).floor("day")
+        if not os.access(conf[station]["db_path"], os.R_OK):
+            print("FATAL: Unable to access {0} for station {1}".format(conf[station]["db_path"], station), file=sys.stderr)
+            exit(1)
+
+        db[station] = sqlite3.connect(conf[station]["db_path"])
+        cur[station] = db[station].cursor()
+
+        if arg.verbose:
+            print("Reading weather data for {0} from {1}".format(station, conf[station]["db_path"]))
+
+        # Get the start date
+        cur[station].execute("SELECT dateTime FROM archive ORDER BY dateTime LIMIT 1;")
+        start_day[station] = arrow.get(cur[station].fetchone()[0]).floor("day")
+
+    # Current UTC day
+    today = arrow.utcnow().floor("day")
 
     # Force-rewrite the state, if asked to
     if arg.reset_state is not None:
         if arg.force or read_state(conf) is None:
-            if arg.reset_state < start_day:
-                arg.reset_state = start_day
+
+            # Find the earliest start_day
+            first_day = today
+            for station in stations:
+                if first_day > start_day[station]:
+                    first_day = start_day[station]
+
+            # If the requested state value is earlier than the first day available, just
+            # advance to that day
+            if arg.reset_state < first_day:
+                arg.reset_state = first_day
             write_state(conf, arg.reset_state)
         else:
             print("State present.  Use --force to overwrite.")
@@ -160,7 +193,7 @@ def entry():
     if arg.stop:
         yesterday = arg.stop
     else:
-        yesterday = arrow.utcnow().floor("day").shift(days=-1)
+        yesterday = today.shift(days=-1)
 
     if arg.verbose:
         print("yesterday = ", yesterday)
@@ -169,55 +202,68 @@ def entry():
     if yesterday == first_day:
         os.exit(0)
 
-    # Count the number of data points for yesterday.  We should have one reading
-    # every five minutes, so:
+    # For each station, count the number of data points for yesterday.  We should
+    # have one reading every five minutes, so:
     #
     #  1 day * 1440 minutes/day / 5 minutes = 288
     #
-    cur.execute(
-        "SELECT COUNT() FROM archive WHERE dateTime BETWEEN ? AND ?",
-        (yesterday.timestamp, yesterday.ceil("day").timestamp),
-    )
+    # We only continue if _all_ stations have a complete day (or if forced)
+    for station in stations:
+        cur[station].execute(
+            "SELECT COUNT() FROM archive WHERE dateTime BETWEEN ? AND ?",
+            (yesterday.timestamp, yesterday.ceil("day").timestamp),
+        )
 
-    count = cur.fetchone()
-    if count is None:
-        count = 0
-    else:
-        count = count[0]
-
-    if count != 1440 / 5:
-        if arg.force:
-            print(
-                "Incomplete yesterday ({0} records), continuing anyways.".format(count)
-            )
+        count = cur[station].fetchone()
+        if count is None:
+            count = 0
         else:
-            print("Incomplete yesterday ({0} records), doing nothing.".format(count))
-            exit(0)
+            count = count[0]
+
+        if count != 1440 / 5:
+            if arg.force:
+                print(
+                    "Incomplete yesterday for station {0} ({1} records), continuing anyways.".format(station, count)
+                )
+            else:
+                print("Incomplete yesterday for station {0} ({1} records), doing nothing.".format(station, count))
+                exit(0)
 
     col_name = [k for k, v in dataset.items()]
     col = ",".join(["dateTime", "usUnits"] + col_name)
 
     # Loop over days
     for start, stop in arrow.Arrow.span_range("day", first_day, yesterday):
-        cur.execute(
-            "SELECT "
-            + col
-            + " FROM archive WHERE dateTime BETWEEN ? AND ? ORDER BY dateTime",
-            (start.timestamp, stop.timestamp),
-        )
-        data = np.asarray(cur.fetchall(), dtype=float)
 
-        if not data.shape[0]:
-            if arg.verbose:
-                print("No weather data for {0}".format(start.format("YYYY-MM-DD")))
-            continue
-        elif arg.verbose:
-            print(
-                "Found {0} records for {1}".format(
-                    data.shape[0], start.format("YYYY-MM-DD")
-                )
+        # Loop over stations
+        data = dict()
+        have_data = False
+        for station in stations:
+            cur[station].execute(
+                "SELECT "
+                + col
+                + " FROM archive WHERE dateTime BETWEEN ? AND ? ORDER BY dateTime",
+                (start.timestamp, stop.timestamp),
             )
+            data[station] = np.asarray(cur[station].fetchall(), dtype=float)
 
+            if not data[station].shape[0]:
+                if arg.verbose:
+                    print("No data on {0} for station {1}".format(start.format("YYYY-MM-DD"), station))
+            else:
+                have_data = True
+                if arg.verbose:
+                    print(
+                            "Found {0} records on {1} for station {1}".format(
+                                data[station].shape[0], start.format("YYYY-MM-DD"), station
+                                )
+                            )
+
+        if not have_data:
+            print("No data on {0} for any station, skipping".format(start.format("YYYY-MM-DD"), station))
+            continue
+
+        # Create the file (and acq, if necessary)
         acq = "{0}_{1}_weather".format(
             start.floor("month").format("YYYYMMDDTHHmmss"), conf["instrument"]
         )
@@ -230,22 +276,6 @@ def entry():
             if arg.verbose:
                 print("Creating acquisition directory: {0}".format(basedir))
             os.makedirs(basedir)
-
-        # Check if "usUnits" is true; if so, convert from Imperial to metric units.
-        for i in range(data.shape[0]):
-            if data[i, 1]:
-                for j in range(2, data.shape[1]):
-                    if not data[i, j]:
-                        continue
-                    t = dataset[col_name[j - 2]]["type"]
-                    if t == "pressure":
-                        data[i, j] = data[i, j] * 33.86389  # inHg to hPa
-                    elif t == "temperature":
-                        data[i, j] = (data[i, j] - 32.0) * 5.0 / 9.0  # F to C
-                    elif t == "speed":
-                        data[i, j] = data[i, j] * 1.60934  # mi/h to km/ha
-                    elif t == "amount" or t == "rate":
-                        data[i, j] = data[i, j] * 25.4  # inch to mm
 
         # Create empty lock file
         open(lockpath, "w").close()
@@ -264,15 +294,63 @@ def entry():
         hf.attrs.create("archive_version", archive_version)
         hf.attrs.create("acquisition_name", acq)
         hf.attrs.create("acquisition_type", "weather")
-        hf.attrs.create("wview_database", conf["db_path"])
 
-        # Create the datasets.
+        # Create the image map
         img = hf.create_group("index_map")
-        img.create_dataset("time", data=data[:, 0])
-        for i in range(len(col_name)):
-            d = hf.create_dataset(col_name[i], data=data[:, i + 2])
-            d.attrs.create("axis", ["time"])
-            d.attrs.create("units", units[dataset[col_name[i]]["type"]])
+
+        # Create a group for each station
+        n_wrote = 0
+        for station in stations:
+            # Be there data?
+            if not data[station].shape[0]:
+                continue
+
+            # Convert from US units, if necessary
+            for i in range(data[station].shape[0]):
+                if data[station][i, 1]:
+                    for j in range(2, data[station].shape[1]):
+                        if not data[station][i, j]:
+                            continue
+                        t = dataset[col_name[j - 2]]["type"]
+                        if t == "pressure":
+                            data[station][i, j] = data[station][i, j] * 33.863886 # inHg to hPa
+                        elif t == "temperature":
+                            data[station][i, j] = (data[station][i, j] - 32.0) * 5.0 / 9.0  # F to C
+                        elif t == "speed":
+                            data[station][i, j] = data[station][i, j] * 1.609344  # mi/h to km/ha
+                        elif t == "amount" or t == "rate":
+                            data[station][i, j] = data[station][i, j] * 25.4  # inch to mm
+
+            img.create_dataset("station_time_" + station, data=data[station][:, 0])
+
+            gr = hf.create_group(station)
+
+            # Attributes
+            gr.attrs.create("wview_database", conf[station]["db_path"])
+
+            if "longitude" in conf[station]:
+                gr.attrs.create("longitude", float(conf[station]["longitude"]))
+            else:
+                gr.attrs.create("longitude", float('NaN'))
+
+            if "latitude" in conf[station]:
+                gr.attrs.create("latitude", float(conf[station]["latitude"]))
+            else:
+                gr.attrs.create("latitude", float('NaN'))
+
+            if "description" in conf[station]:
+                gr.attrs.create("description", conf[station]["description"])
+            else:
+                gr.attrs.create("description", "")
+
+            # Create the datasets.
+            for i in range(len(col_name)):
+                d = gr.create_dataset(col_name[i], data=data[station][:, i + 2])
+                d.attrs.create("axis", ["station_time_" + station])
+                d.attrs.create("units", units[dataset[col_name[i]]["type"]])
+
+            n_wrote += data[station].shape[0]
+
         hf.close()
 
         # Delete the lock file
@@ -280,6 +358,8 @@ def entry():
 
         write_state(conf, start)
 
-        print("Wrote {0} records to {1}".format(data.shape[0], filepath))
+        print("Wrote {0} records to {1}".format(n_wrote, filepath))
 
-    db.close()
+    # Close
+    for station in stations:
+        db[station].close()

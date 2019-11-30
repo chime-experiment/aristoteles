@@ -126,7 +126,7 @@ def entry():
         print("FATAL: error reading config file: " + repr(e.args), file=sys.stderr)
         exit(1)
 
-    for key in ( "state_path", "instrument"):
+    for key in ("state_path", "instrument"):
         if key not in conf:
             print("FATAL: Missing configuration key: " + key, file=sys.stderr)
             exit(1)
@@ -144,18 +144,30 @@ def entry():
     for station in stations:
         # Open the database and find the earliest record
         if "db_path" not in conf[station]:
-            print("FATAL: Missing configuration key: " + key + " for station " + station, file=sys.stderr)
+            print(
+                "FATAL: Missing configuration key: " + key + " for station " + station,
+                file=sys.stderr,
+            )
             exit(1)
 
         if not os.access(conf[station]["db_path"], os.R_OK):
-            print("FATAL: Unable to access {0} for station {1}".format(conf[station]["db_path"], station), file=sys.stderr)
+            print(
+                "FATAL: Unable to access {0} for station {1}".format(
+                    conf[station]["db_path"], station
+                ),
+                file=sys.stderr,
+            )
             exit(1)
 
         db[station] = sqlite3.connect(conf[station]["db_path"])
         cur[station] = db[station].cursor()
 
         if arg.verbose:
-            print("Reading weather data for {0} from {1}".format(station, conf[station]["db_path"]))
+            print(
+                "Reading weather data for {0} from {1}".format(
+                    station, conf[station]["db_path"]
+                )
+            )
 
         # Get the start date
         cur[station].execute("SELECT dateTime FROM archive ORDER BY dateTime LIMIT 1;")
@@ -223,10 +235,16 @@ def entry():
         if count != 1440 / 5:
             if arg.force:
                 print(
-                    "Incomplete yesterday for station {0} ({1} records), continuing anyways.".format(station, count)
+                    "Incomplete yesterday for station {0} ({1} records), continuing anyways.".format(
+                        station, count
+                    )
                 )
             else:
-                print("Incomplete yesterday for station {0} ({1} records), doing nothing.".format(station, count))
+                print(
+                    "Incomplete yesterday for station {0} ({1} records), doing nothing.".format(
+                        station, count
+                    )
+                )
                 exit(0)
 
     col_name = [k for k, v in dataset.items()]
@@ -249,18 +267,26 @@ def entry():
 
             if not data[station].shape[0]:
                 if arg.verbose:
-                    print("No data on {0} for station {1}".format(start.format("YYYY-MM-DD"), station))
+                    print(
+                        "No data on {0} for station {1}".format(
+                            start.format("YYYY-MM-DD"), station
+                        )
+                    )
             else:
                 have_data = True
                 if arg.verbose:
                     print(
-                            "Found {0} records on {1} for station {1}".format(
-                                data[station].shape[0], start.format("YYYY-MM-DD"), station
-                                )
-                            )
+                        "Found {0} records on {1} for station {1}".format(
+                            data[station].shape[0], start.format("YYYY-MM-DD"), station
+                        )
+                    )
 
         if not have_data:
-            print("No data on {0} for any station, skipping".format(start.format("YYYY-MM-DD"), station))
+            print(
+                "No data on {0} for any station, skipping".format(
+                    start.format("YYYY-MM-DD"), station
+                )
+            )
             continue
 
         # Create the file (and acq, if necessary)
@@ -313,13 +339,21 @@ def entry():
                             continue
                         t = dataset[col_name[j - 2]]["type"]
                         if t == "pressure":
-                            data[station][i, j] = data[station][i, j] * 33.863886 # inHg to hPa
+                            data[station][i, j] = (
+                                data[station][i, j] * 33.863886
+                            )  # inHg to hPa
                         elif t == "temperature":
-                            data[station][i, j] = (data[station][i, j] - 32.0) * 5.0 / 9.0  # F to C
+                            data[station][i, j] = (
+                                (data[station][i, j] - 32.0) * 5.0 / 9.0
+                            )  # F to C
                         elif t == "speed":
-                            data[station][i, j] = data[station][i, j] * 1.609344  # mi/h to km/ha
+                            data[station][i, j] = (
+                                data[station][i, j] * 1.609344
+                            )  # mi/h to km/ha
                         elif t == "amount" or t == "rate":
-                            data[station][i, j] = data[station][i, j] * 25.4  # inch to mm
+                            data[station][i, j] = (
+                                data[station][i, j] * 25.4
+                            )  # inch to mm
 
             img.create_dataset("station_time_" + station, data=data[station][:, 0])
 
@@ -331,12 +365,12 @@ def entry():
             if "longitude" in conf[station]:
                 gr.attrs.create("longitude", float(conf[station]["longitude"]))
             else:
-                gr.attrs.create("longitude", float('NaN'))
+                gr.attrs.create("longitude", float("NaN"))
 
             if "latitude" in conf[station]:
                 gr.attrs.create("latitude", float(conf[station]["latitude"]))
             else:
-                gr.attrs.create("latitude", float('NaN'))
+                gr.attrs.create("latitude", float("NaN"))
 
             if "description" in conf[station]:
                 gr.attrs.create("description", conf[station]["description"])

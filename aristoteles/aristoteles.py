@@ -45,6 +45,7 @@ units = {
     "amount": "mm",
 }
 
+# This is the absolute earliest day we're willing to entertain.
 _DAY_LIMIT = arrow.get("2000-01-01")
 
 

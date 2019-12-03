@@ -313,7 +313,7 @@ def entry():
         # Create the HDF5 file and add global attributes.
         hf = h5py.File(filepath, "w")
         hf.attrs.create(
-            "git_version_tag", "aristoteles-v{0}".format(aristoteles_version)
+            "git_version_tag", "aristoteles-{0}".format(aristoteles_version)
         )
         hf.attrs.create("system_user", os.environ["USER"])
         hf.attrs.create("collection_server", socket.gethostname())

@@ -4,7 +4,7 @@ from setuptools import setup, find_packages
 setup(
     name="aristoteles",
     use_scm_version=True,
-    setup_requires=['setuptools_scm'],
+    setup_requires=["setuptools_scm"],
     packages=find_packages(),
     zip_safe=False,
     install_requires=[

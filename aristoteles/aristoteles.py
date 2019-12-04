@@ -291,7 +291,7 @@ def entry():
             continue
 
         # Create the file (and acq, if necessary)
-        acq = "{0}_{1}_weather".format(
+        acq = "{0}Z_{1}_weather".format(
             start.floor("month").format("YYYYMMDDTHHmmss"), conf["instrument"]
         )
         basedir = os.path.join(conf["archive"], acq)

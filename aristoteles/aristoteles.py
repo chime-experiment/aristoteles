@@ -50,9 +50,9 @@ _DAY_LIMIT = arrow.get("2000-01-01")
 
 
 def write_state(conf, value):
-    """Write value (an arrow) to state file"""
+    """Write tommorrow relative to value (an arrow) to state file"""
     with open(conf["state_path"], "w") as f:
-        f.write(value.format("YYYYMMDD"))
+        f.write(value.shift(days=1).format("YYYYMMDD"))
 
 
 def read_state(conf):
@@ -191,7 +191,9 @@ def entry():
             # advance to that day
             if arg.reset_state < first_day:
                 arg.reset_state = first_day
-            write_state(conf, arg.reset_state)
+
+            # Today is tomorrow's yesterday
+            write_state(conf, arg.reset_state.shift(days=-1))
         else:
             print("State present.  Use --force to overwrite.")
         exit(0)

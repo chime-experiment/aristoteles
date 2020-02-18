@@ -211,11 +211,12 @@ def entry():
         yesterday = today.shift(days=-1)
 
     if arg.verbose:
+        print("first day = ", first_day)
         print("yesterday = ", yesterday)
 
     # Nothing to do
-    if yesterday == first_day:
-        os.exit(0)
+    if yesterday.shift(days=1) <= first_day:
+        exit(0)
 
     # For each station, count the number of data points for yesterday.  We should
     # have one reading every five minutes, so:

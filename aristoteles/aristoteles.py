@@ -218,6 +218,11 @@ def entry():
     if yesterday.shift(days=1) <= first_day:
         exit(0)
 
+    # Make sure the archive exists
+    if not os.path.exists(conf["archive"]):
+        print("FATAL: archive {} not found.".format(conf["archive"]))
+        exit(1)
+
     # For each station, count the number of data points for yesterday.  We should
     # have one reading every five minutes, so:
     #

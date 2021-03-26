@@ -232,7 +232,7 @@ def entry():
     for station in stations:
         cur[station].execute(
             "SELECT COUNT() FROM archive WHERE dateTime BETWEEN ? AND ?",
-            (yesterday.timestamp, yesterday.ceil("day").timestamp),
+            (yesterday.int_timestamp, yesterday.ceil("day").int_timestamp),
         )
 
         count = cur[station].fetchone()
@@ -270,7 +270,7 @@ def entry():
                 "SELECT "
                 + col
                 + " FROM archive WHERE dateTime BETWEEN ? AND ? ORDER BY dateTime",
-                (start.timestamp, stop.timestamp),
+                (start.int_timestamp, stop.int_timestamp),
             )
             data[station] = np.asarray(cur[station].fetchall(), dtype=float)
 

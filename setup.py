@@ -8,12 +8,11 @@ setup(
     packages=find_packages(),
     zip_safe=False,
     install_requires=[
-        "arrow",
+        "arrow >= 1.0",
         "click",
         "configobj",
         "h5py >= 2.10.0",
         "numpy >= 1.16",
-        "future",
     ],
     author="The CHIME Collaboration",
     entry_points="""

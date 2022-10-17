@@ -16,6 +16,19 @@ from aristoteles import __version__ as aristoteles_version
 # See https://bao.chimenet.ca/doc/documents/5, Table 3
 archive_version = "4.0.0"
 
+# This is the metric metadata we write to the textfille collector
+metric_descriptions = {
+    "report_time": "aristoteles.prom write time",
+    "status": "aristoteles exit status",
+    "days_written": "number of days written",
+    "yesterday": "yesterday's date",
+    "first_day": "first day checked",
+    "samples_yesterday": "number of weather samples for yesterday",
+}
+
+# Metric values go in here
+metric_data = list()
+
 dataset = {
     "barometer": {"type": "pressure"},
     "pressure": {"type": "pressure"},
@@ -79,6 +92,59 @@ def day_arg(arg):
     return day
 
 
+def add_metric(metric, value, labels=None):
+    """Record a new metric value with optional label dict"""
+    metric_data.append({"name": metric, "value": str(value), "labels": labels})
+
+
+def prom_and_exit(conf, status):
+    """Write aristoteles.prom in the textfile collector directory and then exit with status"""
+
+    # Skip promfile creation if we haven't been given the textifle collector directory
+    if "netfc_path" in conf:
+        path = os.path.join(conf["netfc_path"], "aristoteles.prom")
+
+        add_metric("status", status)
+        add_metric("report_time", arrow.utcnow().int_timestamp)
+
+        try:
+            with open(path + ".new", "w") as f:
+                for metric in metric_data:
+                    if metric["name"] in metric_descriptions:
+                        name = "aristoteles_" + metric["name"]
+                        f.write(
+                            "# HELP "
+                            + name
+                            + " "
+                            + metric_descriptions[metric["name"]]
+                            + "\n"
+                        )
+                        f.write("# TYPE " + name + " gauge\n")
+                        f.write(name)
+                        if metric["labels"] is not None:
+                            f.write(
+                                "{"
+                                + (
+                                    ",".join(
+                                        [
+                                            k + '="' + str(v) + '"'
+                                            for (k, v) in metric["labels"].items()
+                                        ]
+                                    )
+                                )
+                                + "}"
+                            )
+                        f.write(" " + metric["value"] + "\n")
+
+        except OSError:
+            os.unlink(path + ".new")
+        else:
+            os.rename(path + ".new", path)
+
+    # Exit
+    exit(status)
+
+
 def entry():
     global __doc__
 
@@ -125,7 +191,7 @@ def entry():
         conf = configobj.ConfigObj(arg.conf_file, raise_errors=True, file_error=True)
     except OSError as e:
         print("FATAL: error reading config file: " + repr(e.args), file=sys.stderr)
-        exit(1)
+        prom_and_exit(conf, 1)
 
     for key in ("state_path", "instrument"):
         if key not in conf:
@@ -187,8 +253,8 @@ def entry():
                 if first_day > start_day[station]:
                     first_day = start_day[station]
 
-            # If the requested state value is earlier than the first day available, just
-            # advance to that day
+            # If the requested state value is earlier than the first day
+            # available, just advance to that day
             if arg.reset_state < first_day:
                 arg.reset_state = first_day
 
@@ -204,11 +270,15 @@ def entry():
         print("FATAL: Bad state.  Regenerate with --reset-state.", file=sys.stderr)
         exit(1)
 
+    add_metric("first_day", first_day.int_timestamp)
+
     # This is the last UTC day we're doing
     if arg.stop:
         yesterday = arg.stop
     else:
         yesterday = today.shift(days=-1)
+
+    add_metric("yesterday", yesterday.int_timestamp)
 
     if arg.verbose:
         print("first day = ", first_day)
@@ -216,15 +286,15 @@ def entry():
 
     # Nothing to do
     if yesterday.shift(days=1) <= first_day:
-        exit(0)
+        prom_and_exit(conf, 0)
 
     # Make sure the archive exists
     if not os.path.exists(conf["archive"]):
         print("FATAL: archive {} not found.".format(conf["archive"]))
-        exit(1)
+        prom_and_exit(conf, 1)
 
-    # For each station, count the number of data points for yesterday.  We should
-    # have one reading every five minutes, so:
+    # For each station, count the number of data points for yesterday.
+    # We should have one reading every five minutes, so:
     #
     #  1 day * 1440 minutes/day / 5 minutes = 288
     #
@@ -241,25 +311,26 @@ def entry():
         else:
             count = count[0]
 
+        add_metric("samples_yesterday", count, dict({"station": station}))
+
         if count != 1440 / 5:
             if arg.force:
                 print(
-                    "Incomplete yesterday for station {0} ({1} records), continuing anyways.".format(
-                        station, count
-                    )
+                    "Incomplete yesterday for station {0} ({1} records), "
+                    + "continuing anyways.".format(station, count)
                 )
             else:
                 print(
-                    "Incomplete yesterday for station {0} ({1} records), doing nothing.".format(
-                        station, count
-                    )
+                    "Incomplete yesterday for station {0} ({1} records), "
+                    + "doing nothing.".format(station, count)
                 )
-                exit(0)
+                prom_and_exit(conf, 0)
 
     col_name = [k for k, v in dataset.items()]
     col = ",".join(["dateTime", "usUnits"] + col_name)
 
     # Loop over days
+    count = 0
     for start, stop in arrow.Arrow.span_range("day", first_day, yesterday):
 
         # Loop over stations
@@ -396,6 +467,9 @@ def entry():
 
         hf.close()
 
+        # Increment count of written files
+        count += 1
+
         # Delete the lock file
         os.unlink(lockpath)
 
@@ -406,3 +480,6 @@ def entry():
     # Close
     for station in stations:
         db[station].close()
+
+    add_metric("days_written", count)
+    prom_and_exit(conf, 0)

@@ -317,12 +317,12 @@ def entry():
             if arg.force:
                 print(
                     "Incomplete yesterday for station {0} ({1} records), "
-                    + "continuing anyways.".format(station, count)
+                    "continuing anyways.".format(station, count)
                 )
             else:
                 print(
                     "Incomplete yesterday for station {0} ({1} records), "
-                    + "doing nothing.".format(station, count)
+                    "doing nothing.".format(station, count)
                 )
                 prom_and_exit(conf, 0)
 

@@ -2,7 +2,7 @@
 # To find the version number for an uninstalled copy of
 # this package, execute:
 #
-#   python -m setuptools_scm
+#   setuptools-git-versioning
 #
 from importlib.metadata import version, PackageNotFoundError
 
